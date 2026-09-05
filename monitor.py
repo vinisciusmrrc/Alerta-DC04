@@ -70,7 +70,7 @@ def calcular_patamar(nivel):
     if nivel < LIMITE_INICIAL:
         return -1
 
-    return int((nivel - LIMITE_INICIAL) // INCREMENTO)
+    return int((nivel - LIMITE_INICIAL + 0.000001) / INCREMENTO)
 
 
 nivel, data, hora = obter_dc04()
