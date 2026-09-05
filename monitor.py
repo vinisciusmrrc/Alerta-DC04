@@ -8,7 +8,7 @@ URL = "https://defesacivil.itajai.sc.gov.br/monitoramento/nivel-rios"
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-LIMITE_INICIAL = 1.00
+LIMITE_INICIAL = 1.20
 INCREMENTO = 0.10
 ARQUIVO_ESTADO = "estado.txt"
 
