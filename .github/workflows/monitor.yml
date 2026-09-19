@@ -3,6 +3,7 @@ name: Monitor DC-04
 on:
   schedule:
     - cron: "*/12 * * * *"
+
   workflow_dispatch:
 
 permissions:
@@ -13,10 +14,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+
   monitor:
+
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Baixar código
         uses: actions/checkout@v4
 
@@ -36,13 +40,20 @@ jobs:
 
       - name: Salvar estado
         run: |
+
           if [ -f estado.txt ]; then
+
             git config user.name "Alerta DC-04"
             git config user.email "actions@github.com"
+
             git add estado.txt
 
             if ! git diff --cached --quiet; then
+
               git commit -m "Atualiza estado do monitor"
+
               git push
+
             fi
+
           fi
