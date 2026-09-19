@@ -1,7 +1,7 @@
 import json
 import requests
 
-URL = "https://monitoramento.defesacivil.itajai.sc.gov.br/api/v1/rios"
+URL = "https://monitoramento.defesacivil.itajai.sc.gov.br/api/v1/rios/4"
 
 headers = {
     "Accept": "application/json",
@@ -22,6 +22,6 @@ resposta.raise_for_status()
 
 dados = resposta.json()
 
-print("\n===== RESPOSTA COMPLETA DA API =====")
+print("\n===== DC-04 / RIO 4 =====")
 print(json.dumps(dados, ensure_ascii=False, indent=2))
-print("====================================")
+print("==========================")
