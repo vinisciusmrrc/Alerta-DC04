@@ -7,7 +7,7 @@ import requests
 
 URL = "https://monitoramento.defesacivil.itajai.sc.gov.br/api/v1/rios/4"
 
-LIMITE_INICIAL = 1.65
+LIMITE_INICIAL = 1.00
 INCREMENTO = 0.10
 
 ARQUIVO_ESTADO = "estado.txt"
