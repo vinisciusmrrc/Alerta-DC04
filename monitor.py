@@ -3,7 +3,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-URL = "https://defesacivil.itajai.sc.gov.br/monitoramento/nivel-rios"
+URL = "https://monitoramento.defesacivil.itajai.sc.gov.br/monitoramento/rios?municipio_id=1"
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
