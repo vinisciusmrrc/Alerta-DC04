@@ -1,20 +1,31 @@
-import re
+import json
 import requests
-from bs4 import BeautifulSoup
 
-URL = "https://defesacivil.itajai.sc.gov.br/monitoramento/nivel-rios"
+URL = "https://monitoramento.defesacivil.itajai.sc.gov.br/api/v1/rios"
+
+def procurar_dc04(obj):
+    if isinstance(obj, dict):
+        if obj.get("id") == "DC-04" or obj.get("apiId") == 4:
+            return obj
+
+        for valor in obj.values():
+            resultado = procurar_dc04(valor)
+            if resultado is not None:
+                return resultado
+
+    elif isinstance(obj, list):
+        for item in obj:
+            resultado = procurar_dc04(item)
+            if resultado is not None:
+                return resultado
+
+    return None
+
 
 headers = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/140.0 Safari/537.36"
-    )
+    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0"
 }
-
-print("========================================")
-print("DIAGNOSTICO DO NOVO SITE")
-print("========================================")
 
 resposta = requests.get(
     URL,
@@ -22,130 +33,21 @@ resposta = requests.get(
     timeout=30
 )
 
+print("STATUS:", resposta.status_code)
+print("CONTENT-TYPE:", resposta.headers.get("content-type"))
+print("TAMANHO:", len(resposta.text))
+
 resposta.raise_for_status()
 
-print("STATUS:", resposta.status_code)
-print("URL:", resposta.url)
-print("HTML:", len(resposta.text), "bytes")
+dados = resposta.json()
 
-soup = BeautifulSoup(
-    resposta.text,
-    "html.parser"
-)
+print("TIPO DA RESPOSTA:", type(dados).__name__)
 
-script = soup.find(
-    "script",
-    src=True
-)
+dc04 = procurar_dc04(dados)
 
-if not script:
-    raise RuntimeError(
-        "Não encontrei o arquivo JavaScript principal."
-    )
-
-js_src = script["src"]
-
-if js_src.startswith("/"):
-    js_url = "https://defesacivil.itajai.sc.gov.br" + js_src
+if dc04 is None:
+    print("DC-04 NÃO ENCONTRADO NA RESPOSTA DA API.")
 else:
-    js_url = js_src
-
-print()
-print("JAVASCRIPT PRINCIPAL:")
-print(js_url)
-
-js = requests.get(
-    js_url,
-    headers=headers,
-    timeout=30
-)
-
-js.raise_for_status()
-
-print("TAMANHO DO JAVASCRIPT:", len(js.text), "bytes")
-
-texto = js.text
-
-print()
-print("========================================")
-print("TERMOS RELACIONADOS A API")
-print("========================================")
-
-padroes = [
-    r'["\']([^"\']*api[^"\']*)["\']',
-    r'["\']([^"\']*rio[^"\']*)["\']',
-    r'["\']([^"\']*nivel[^"\']*)["\']',
-    r'["\']([^"\']*monitoramento[^"\']*)["\']',
-]
-
-encontrados = set()
-
-for padrao in padroes:
-    resultados = re.findall(
-        padrao,
-        texto,
-        re.IGNORECASE
-    )
-
-    for resultado in resultados:
-        if len(resultado) < 300:
-            encontrados.add(resultado)
-
-for item in sorted(encontrados):
-    print(item)
-
-print()
-print("========================================")
-print("URLS ENCONTRADAS")
-print("========================================")
-
-urls = re.findall(
-    r'https?://[^"\']+',
-    texto
-)
-
-for url in sorted(set(urls)):
-    print(url[:500])
-
-print()
-print("========================================")
-print("TRECHOS COM fetch / axios")
-print("========================================")
-
-for termo in [
-    "fetch(",
-    "axios",
-    ".get(",
-    "/api/",
-    "DC-04",
-    "nivel-rios"
-]:
-    print()
-    print("-----", termo, "-----")
-
-    posicoes = []
-    inicio = 0
-
-    while True:
-        pos = texto.lower().find(
-            termo.lower(),
-            inicio
-        )
-
-        if pos == -1:
-            break
-
-        posicoes.append(pos)
-        inicio = pos + len(termo)
-
-    for pos in posicoes[:10]:
-        inicio_trecho = max(0, pos - 300)
-        fim_trecho = min(
-            len(texto),
-            pos + 500
-        )
-
-        print(
-            texto[inicio_trecho:fim_trecho]
-        )
-        print()
+    print("\n===== DC-04 ENCONTRADO =====")
+    print(json.dumps(dc04, ensure_ascii=False, indent=2))
+    print("============================")
