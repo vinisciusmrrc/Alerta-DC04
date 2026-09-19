@@ -1,27 +1,176 @@
-import json
+import os
 import requests
+
+# ============================================================
+# CONFIGURAÇÕES
+# ============================================================
 
 URL = "https://monitoramento.defesacivil.itajai.sc.gov.br/api/v1/rios/4"
 
-headers = {
-    "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0"
-}
+LIMITE_INICIAL = 1.65
+INCREMENTO = 0.10
 
-resposta = requests.get(
-    URL,
-    headers=headers,
-    timeout=30
-)
+ARQUIVO_ESTADO = "estado.txt"
 
-print("STATUS:", resposta.status_code)
-print("CONTENT-TYPE:", resposta.headers.get("content-type"))
-print("TAMANHO:", len(resposta.text))
+BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-resposta.raise_for_status()
 
-dados = resposta.json()
+# ============================================================
+# BUSCAR DADOS DO DC-04
+# ============================================================
 
-print("\n===== DC-04 / RIO 4 =====")
-print(json.dumps(dados, ensure_ascii=False, indent=2))
-print("==========================")
+def obter_dc04():
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    resposta = requests.get(
+        URL,
+        headers=headers,
+        timeout=30
+    )
+
+    resposta.raise_for_status()
+
+    dados = resposta.json()
+
+    if dados.get("id") != 4:
+        raise RuntimeError("A API não retornou o DC-04.")
+
+    nivel_texto = dados.get("nivel_rio_m")
+    medido_em = dados.get("medido_em")
+
+    if not nivel_texto:
+        raise RuntimeError("Nível do rio não encontrado na resposta da API.")
+
+    # Exemplo: "1,05 m" -> 1.05
+    nivel = float(
+        nivel_texto
+        .replace("m", "")
+        .replace(",", ".")
+        .strip()
+    )
+
+    return nivel, medido_em
+
+
+# ============================================================
+# TELEGRAM
+# ============================================================
+
+def enviar_telegram(mensagem):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    resposta = requests.post(
+        url,
+        data={
+            "chat_id": CHAT_ID,
+            "text": mensagem
+        },
+        timeout=30
+    )
+
+    resposta.raise_for_status()
+
+
+# ============================================================
+# ESTADO DO MONITOR
+# ============================================================
+
+def carregar_estado():
+    if not os.path.exists(ARQUIVO_ESTADO):
+        return -1
+
+    try:
+        with open(ARQUIVO_ESTADO, "r") as arquivo:
+            return int(arquivo.read().strip())
+    except:
+        return -1
+
+
+def salvar_estado(patamar):
+    with open(ARQUIVO_ESTADO, "w") as arquivo:
+        arquivo.write(str(patamar))
+
+
+# ============================================================
+# CALCULAR PATAMAR
+# ============================================================
+
+def calcular_patamar(nivel):
+
+    # Abaixo de 1,65 m = nenhum alerta
+    if nivel < LIMITE_INICIAL:
+        return -1
+
+    # Pequena tolerância para evitar problemas de ponto flutuante
+    return int(
+        (nivel - LIMITE_INICIAL + 0.000001) / INCREMENTO
+    )
+
+
+# ============================================================
+# EXECUÇÃO
+# ============================================================
+
+nivel, medido_em = obter_dc04()
+
+patamar_atual = calcular_patamar(nivel)
+patamar_anterior = carregar_estado()
+
+
+print(f"DC-04: {nivel:.2f} m")
+print(f"Última medição: {medido_em}")
+print(f"Patamar atual: {patamar_atual}")
+print(f"Patamar anterior: {patamar_anterior}")
+
+
+# ============================================================
+# NOVO ALERTA
+# ============================================================
+
+if patamar_atual > patamar_anterior:
+
+    limite_atingido = (
+        LIMITE_INICIAL +
+        (patamar_atual * INCREMENTO)
+    )
+
+    mensagem = (
+        "🚨🚨 ALERTA DC-04 🚨🚨\n\n"
+        "🌊 Rio Itajaí-Mirim\n"
+        "📍 Vitalmar Pescados\n\n"
+        f"🌊 Nível atual: {nivel:.2f} m\n"
+        f"⚠️ Limite atingido: {limite_atingido:.2f} m\n"
+        f"🕐 Medição: {medido_em}\n\n"
+        "⚠️ Atenção: o nível do rio atingiu "
+        "um novo patamar de alerta."
+    )
+
+    enviar_telegram(mensagem)
+
+    salvar_estado(patamar_atual)
+
+    print("🚨 ALERTA ENVIADO PELO TELEGRAM.")
+
+
+# ============================================================
+# RIO ABAIXOU
+# ============================================================
+
+elif patamar_atual < patamar_anterior:
+
+    salvar_estado(patamar_atual)
+
+    print("Nível caiu. Estado atualizado.")
+
+
+# ============================================================
+# NENHUMA MUDANÇA
+# ============================================================
+
+else:
+
+    print("Nenhum novo patamar atingido. Nenhum alerta enviado.")
