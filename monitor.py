@@ -12,24 +12,27 @@ URL = "https://defesacivil.itajai.sc.gov.br/monitoramento/nivel-rios"
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-LIMITE_INICIAL = 1.20
+LIMITE_INICIAL = 1.65
 INCREMENTO = 0.10
 
 ARQUIVO_ESTADO = "estado.txt"
 
 
 # ============================================================
-# BUSCAR DADOS DO DC-04
+# BUSCAR DC-04
 # ============================================================
 
 def obter_dc04():
 
     headers = {
         "User-Agent": (
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-            "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-            "Version/17.0 Mobile/15E148 Safari/604.1"
-        )
+            "Mozilla/5.0 (X11; Linux x86_64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
     }
 
     resposta = requests.get(
@@ -40,20 +43,97 @@ def obter_dc04():
 
     resposta.raise_for_status()
 
-    soup = BeautifulSoup(resposta.text, "html.parser")
+    soup = BeautifulSoup(
+        resposta.text,
+        "html.parser"
+    )
 
-    texto = soup.get_text(" ", strip=True)
+    # --------------------------------------------------------
+    # PRIMEIRA TENTATIVA:
+    # procura o texto DC-04 e sobe pelos elementos HTML
+    # até encontrar o bloco que também contém "Nível do Rio"
+    # --------------------------------------------------------
 
-    # Normaliza espaços
-    texto = re.sub(r"\s+", " ", texto)
+    encontrados = soup.find_all(
+        string=re.compile(r"DC-04", re.IGNORECASE)
+    )
 
-    # Procura especificamente o DC-04
+    for item in encontrados:
+
+        elemento = item.parent
+
+        # Procura o bloco correto subindo alguns níveis
+        for _ in range(8):
+
+            if elemento is None:
+                break
+
+            bloco = elemento.get_text(
+                " ",
+                strip=True
+            )
+
+            bloco = re.sub(
+                r"\s+",
+                " ",
+                bloco
+            )
+
+            if (
+                "Nível do Rio" in bloco
+                and "Data e hora da medição" in bloco
+            ):
+
+                resultado = re.search(
+                    r"Nível do Rio\s*:\s*"
+                    r"([0-9]+[,.][0-9]+)\s*m",
+                    bloco,
+                    re.IGNORECASE
+                )
+
+                data_hora = re.search(
+                    r"Data e hora da medição\s*:\s*"
+                    r"([0-9/]+)\s+([0-9:]+)",
+                    bloco,
+                    re.IGNORECASE
+                )
+
+                if resultado and data_hora:
+
+                    nivel = float(
+                        resultado.group(1)
+                        .replace(",", ".")
+                    )
+
+                    data = data_hora.group(1)
+                    hora = data_hora.group(2)
+
+                    return nivel, data, hora
+
+            elemento = elemento.parent
+
+    # --------------------------------------------------------
+    # SEGUNDA TENTATIVA:
+    # procura tudo no texto da página
+    # --------------------------------------------------------
+
+    texto = soup.get_text(
+        " ",
+        strip=True
+    )
+
+    texto = re.sub(
+        r"\s+",
+        " ",
+        texto
+    )
+
     padrao = (
-        r"DC-04\s+"
-        r"Rio Itajaí-Mirim.*?"
-        r"Vitalmar Pescados.*?"
-        r"Nível do Rio:\s*([0-9]+[,.][0-9]+)\s*m.*?"
-        r"Data e hora da medição:\s*([0-9/]+)\s+([0-9:]+)"
+        r"DC-04.*?"
+        r"Nível do Rio\s*:\s*"
+        r"([0-9]+[,.][0-9]+)\s*m.*?"
+        r"Data e hora da medição\s*:\s*"
+        r"([0-9/]+)\s+([0-9:]+)"
     )
 
     resultado = re.search(
@@ -62,40 +142,34 @@ def obter_dc04():
         re.IGNORECASE
     )
 
-    if not resultado:
+    if resultado:
 
-        # Segunda tentativa mais simples,
-        # caso a Defesa Civil altere um pouco o texto.
-        padrao_fallback = (
-            r"DC-04.*?"
-            r"Nível do Rio:\s*([0-9]+[,.][0-9]+)\s*m.*?"
-            r"Data e hora da medição:\s*([0-9/]+)\s+([0-9:]+)"
+        nivel = float(
+            resultado.group(1)
+            .replace(",", ".")
         )
 
-        resultado = re.search(
-            padrao_fallback,
-            texto,
-            re.IGNORECASE
-        )
+        data = resultado.group(2)
+        hora = resultado.group(3)
 
-    if not resultado:
-        raise RuntimeError(
-            "Não foi possível localizar os dados do DC-04 "
-            "na página da Defesa Civil."
-        )
+        return nivel, data, hora
 
-    nivel = float(
-        resultado.group(1).replace(",", ".")
+    # --------------------------------------------------------
+    # SE CHEGAR AQUI, A PÁGINA RESPONDEU MAS NÃO CONSEGUIMOS
+    # LOCALIZAR O DC-04
+    # --------------------------------------------------------
+
+    trecho = texto[:2000]
+
+    raise RuntimeError(
+        "Não foi possível localizar os dados do DC-04. "
+        "Primeiros dados recebidos pelo site:\n"
+        + trecho
     )
-
-    data = resultado.group(2)
-    hora = resultado.group(3)
-
-    return nivel, data, hora
 
 
 # ============================================================
-# ENVIAR MENSAGEM PELO TELEGRAM
+# TELEGRAM
 # ============================================================
 
 def enviar_telegram(mensagem):
@@ -118,12 +192,14 @@ def enviar_telegram(mensagem):
 
 
 # ============================================================
-# ESTADO DO MONITOR
+# ESTADO
 # ============================================================
 
 def carregar_estado():
 
-    if not os.path.exists(ARQUIVO_ESTADO):
+    if not os.path.exists(
+        ARQUIVO_ESTADO
+    ):
         return -1
 
     try:
@@ -151,22 +227,26 @@ def salvar_estado(patamar):
         encoding="utf-8"
     ) as arquivo:
 
-        arquivo.write(str(patamar))
+        arquivo.write(
+            str(patamar)
+        )
 
 
 # ============================================================
-# CALCULAR PATAMAR
+# PATAMAR
 # ============================================================
 
 def calcular_patamar(nivel):
 
-    # Abaixo de 1,65 m = nenhum alerta
     if nivel < LIMITE_INICIAL:
         return -1
 
-    # Pequena margem para evitar erro de ponto flutuante
     return int(
-        (nivel - LIMITE_INICIAL + 0.000001)
+        (
+            nivel
+            - LIMITE_INICIAL
+            + 0.000001
+        )
         / INCREMENTO
     )
 
@@ -179,7 +259,9 @@ try:
 
     nivel, data, hora = obter_dc04()
 
-    patamar_atual = calcular_patamar(nivel)
+    patamar_atual = calcular_patamar(
+        nivel
+    )
 
     patamar_anterior = carregar_estado()
 
@@ -191,14 +273,17 @@ try:
     )
 
     # --------------------------------------------------------
-    # SUBIU PARA UM NOVO PATAMAR
+    # NOVO PATAMAR
     # --------------------------------------------------------
 
     if patamar_atual > patamar_anterior:
 
         limite_atingido = (
             LIMITE_INICIAL
-            + (patamar_atual * INCREMENTO)
+            + (
+                patamar_atual
+                * INCREMENTO
+            )
         )
 
         mensagem = (
@@ -210,9 +295,13 @@ try:
             f"{limite_atingido:.2f} m"
         )
 
-        enviar_telegram(mensagem)
+        enviar_telegram(
+            mensagem
+        )
 
-        salvar_estado(patamar_atual)
+        salvar_estado(
+            patamar_atual
+        )
 
         print(
             f"ALERTA ENVIADO: "
@@ -220,19 +309,21 @@ try:
         )
 
     # --------------------------------------------------------
-    # NÍVEL CAIU ABAIXO DO LIMITE
+    # NÍVEL ABAIXOU
     # --------------------------------------------------------
 
     elif patamar_atual < patamar_anterior:
 
-        salvar_estado(patamar_atual)
+        salvar_estado(
+            patamar_atual
+        )
 
         print(
             "Nível caiu. Estado atualizado."
         )
 
     # --------------------------------------------------------
-    # MESMO PATAMAR
+    # SEM NOVO ALERTA
     # --------------------------------------------------------
 
     else:
