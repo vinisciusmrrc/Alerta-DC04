@@ -43,6 +43,12 @@ def obter_dc04():
 
     resposta.raise_for_status()
 
+print("STATUS:", resposta.status_code)
+print("URL FINAL:", resposta.url)
+print("TAMANHO DA RESPOSTA:", len(resposta.text))
+print("INÍCIO DA RESPOSTA:")
+print(resposta.text[:5000])
+
     soup = BeautifulSoup(
         resposta.text,
         "html.parser"
