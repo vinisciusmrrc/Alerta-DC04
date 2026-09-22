@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 
 # ============================================================
@@ -15,45 +16,124 @@ ARQUIVO_ESTADO = "estado.txt"
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
+# Quantas vezes tentar novamente caso a API responda 429
+MAX_TENTATIVAS = 5
+
+# Tempo inicial de espera entre tentativas
+ESPERA_INICIAL = 15
+
 
 # ============================================================
 # BUSCAR DADOS DO DC-04
 # ============================================================
 
 def obter_dc04():
+
     headers = {
         "Accept": "application/json",
         "User-Agent": "Mozilla/5.0"
     }
 
-    resposta = requests.get(
-        URL,
-        headers=headers,
-        timeout=30
-    )
+    for tentativa in range(1, MAX_TENTATIVAS + 1):
 
-    resposta.raise_for_status()
+        try:
 
-    dados = resposta.json()
+            print(
+                f"Consultando API do DC-04 "
+                f"(tentativa {tentativa}/{MAX_TENTATIVAS})..."
+            )
 
-    if dados.get("id") != 4:
-        raise RuntimeError("A API não retornou o DC-04.")
+            resposta = requests.get(
+                URL,
+                headers=headers,
+                timeout=30
+            )
 
-    nivel_texto = dados.get("nivel_rio_m")
-    medido_em = dados.get("medido_em")
+            # ------------------------------------------------
+            # RATE LIMIT - HTTP 429
+            # ------------------------------------------------
 
-    if not nivel_texto:
-        raise RuntimeError("Nível do rio não encontrado na resposta da API.")
+            if resposta.status_code == 429:
 
-    # Exemplo: "1,05 m" -> 1.05
-    nivel = float(
-        nivel_texto
-        .replace("m", "")
-        .replace(",", ".")
-        .strip()
-    )
+                retry_after = resposta.headers.get("Retry-After")
 
-    return nivel, medido_em
+                if retry_after:
+                    try:
+                        espera = int(retry_after)
+                    except ValueError:
+                        espera = ESPERA_INICIAL * tentativa
+                else:
+                    espera = ESPERA_INICIAL * tentativa
+
+                print(
+                    f"API respondeu 429 (Too Many Requests). "
+                    f"Aguardando {espera} segundos..."
+                )
+
+                if tentativa < MAX_TENTATIVAS:
+                    time.sleep(espera)
+                    continue
+
+                raise RuntimeError(
+                    "A API continuou respondendo 429 "
+                    "após várias tentativas."
+                )
+
+            # ------------------------------------------------
+            # OUTROS ERROS HTTP
+            # ------------------------------------------------
+
+            resposta.raise_for_status()
+
+            # ------------------------------------------------
+            # PROCESSAR RESPOSTA
+            # ------------------------------------------------
+
+            dados = resposta.json()
+
+            if dados.get("id") != 4:
+                raise RuntimeError(
+                    "A API não retornou o DC-04."
+                )
+
+            nivel_texto = dados.get("nivel_rio_m")
+            medido_em = dados.get("medido_em")
+
+            if not nivel_texto:
+                raise RuntimeError(
+                    "Nível do rio não encontrado na resposta da API."
+                )
+
+            # Exemplo:
+            # "1,05 m" -> 1.05
+
+            nivel = float(
+                nivel_texto
+                .replace("m", "")
+                .replace(",", ".")
+                .strip()
+            )
+
+            print("API consultada com sucesso.")
+
+            return nivel, medido_em
+
+        except requests.exceptions.RequestException as erro:
+
+            if tentativa >= MAX_TENTATIVAS:
+                raise RuntimeError(
+                    f"Não foi possível acessar a API após "
+                    f"{MAX_TENTATIVAS} tentativas: {erro}"
+                )
+
+            espera = ESPERA_INICIAL * tentativa
+
+            print(
+                f"Erro de conexão: {erro}. "
+                f"Aguardando {espera} segundos..."
+            )
+
+            time.sleep(espera)
 
 
 # ============================================================
@@ -61,6 +141,7 @@ def obter_dc04():
 # ============================================================
 
 def enviar_telegram(mensagem):
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     resposta = requests.post(
@@ -80,17 +161,22 @@ def enviar_telegram(mensagem):
 # ============================================================
 
 def carregar_estado():
+
     if not os.path.exists(ARQUIVO_ESTADO):
         return -1
 
     try:
+
         with open(ARQUIVO_ESTADO, "r") as arquivo:
             return int(arquivo.read().strip())
+
     except:
+
         return -1
 
 
 def salvar_estado(patamar):
+
     with open(ARQUIVO_ESTADO, "w") as arquivo:
         arquivo.write(str(patamar))
 
@@ -102,12 +188,16 @@ def salvar_estado(patamar):
 def calcular_patamar(nivel):
 
     # Abaixo de 1,65 m = nenhum alerta
+
     if nivel < LIMITE_INICIAL:
         return -1
 
-    # Pequena tolerância para evitar problemas de ponto flutuante
+    # Pequena tolerância para evitar problemas
+    # de ponto flutuante
+
     return int(
-        (nivel - LIMITE_INICIAL + 0.000001) / INCREMENTO
+        (nivel - LIMITE_INICIAL + 0.000001)
+        / INCREMENTO
     )
 
 
@@ -134,8 +224,8 @@ print(f"Patamar anterior: {patamar_anterior}")
 if patamar_atual > patamar_anterior:
 
     limite_atingido = (
-        LIMITE_INICIAL +
-        (patamar_atual * INCREMENTO)
+        LIMITE_INICIAL
+        + (patamar_atual * INCREMENTO)
     )
 
     mensagem = (
@@ -173,4 +263,7 @@ elif patamar_atual < patamar_anterior:
 
 else:
 
-    print("Nenhum novo patamar atingido. Nenhum alerta enviado.")
+    print(
+        "Nenhum novo patamar atingido. "
+        "Nenhum alerta enviado."
+    )
